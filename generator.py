@@ -2,37 +2,39 @@ import pandas as pd
 import numpy as np
 import json
 import uuid
-import datetime
 import random
 import yfinance as yf
 
 def get_live_vix():
     """Fetches real-time VIX baseline or uses a default if API fails."""
     try:
-        # Fixed: Explicitly selecting the scalar value to avoid FutureWarnings
         vix_df = yf.download("^VIX", period="1d", interval="1m", progress=False)
         if not vix_df.empty:
-            vix_series = vix_df['Close']
-            # Accessing the last value as a scalar
-            vix_value = vix_series.values[-1]
+            # Explicitly select scalar to avoid FutureWarnings
+            vix_value = vix_df['Close'].values[-1]
             return round(float(vix_value), 2)
         return 16.50
-    except Exception as e:
-        print(f"VIX Fetch Info: Using default baseline due to: {e}")
+    except:
         return 16.50 
 
 def generate_synthetic_data(num_trades=10000):
-    # 1. Load Seed Data safely
+    # 1. Load the Enriched Seed Engine
     try:
         with open('seed_engine.json', 'r') as f:
-            raw_seed = json.load(f)
-            if isinstance(raw_seed, dict):
-                temp_list = list(raw_seed.values())
-            else:
-                temp_list = raw_seed
-            seed_data = [item for item in temp_list if isinstance(item, dict)]
+            full_seed = json.load(f)
+            ticker_data = full_seed.get("ticker_metadata", {})
+            
+            if not ticker_data:
+                print("Error: ticker_metadata not found in seed file.")
+                return
+            
+            # Categorize tickers for balanced selection
+            equity_tickers = [t for t, m in ticker_data.items() if m['asset_class'] == "Equity"]
+            # This captures both "Corporate Bond" and "Fixed Income"
+            fi_tickers = [t for t, m in ticker_data.items() if m['asset_class'] != "Equity"]
+            
     except Exception as e:
-        print(f"Error loading seed data: {e}")
+        print(f"File Load Error: {e}")
         return
 
     # 2. Setup Market Baseline (Systemic Stress)
@@ -40,7 +42,7 @@ def generate_synthetic_data(num_trades=10000):
     vix_baseline = 15.0
     systemic_stress = current_vix / vix_baseline
 
-    # 3. Reference Data for Counterparties
+    # 3. Institutional Counterparties (LEIs)
     leis = [
         ("2138006M8651", "JPM_CHASE_NA"),
         ("5493001KJX12", "GOLDMAN_SACHS_INTL"),
@@ -50,42 +52,61 @@ def generate_synthetic_data(num_trades=10000):
     ]
 
     trades = []
-    
+    print(f"🚀 Generating {num_trades} trades...")
+    print(f"📊 Market Universe: {len(equity_tickers)} Equities, {len(fi_tickers)} Fixed Income/Bonds.")
+
     # 4. Generation Loop
-    print(f"Starting generation of {num_trades} trades with Asset Class and Direction...")
     for _ in range(num_trades):
-        # Pick a valid asset
-        asset = random.choice(seed_data)
+        # 70/30 split logic as requested
+        if random.random() < 0.70:
+            ticker = random.choice(equity_tickers)
+        else:
+            ticker = random.choice(fi_tickers)
+            
+        asset_info = ticker_data[ticker]
         lei_id, lei_name = random.choice(leis)
         
-        # --- NEW: Logic for Asset Class ---
-        # If the ticker has a '-' or is longer than 5 chars, we treat it as a Bond 
-        # (mimicking TRACE format), otherwise Equity.
-        ticker = asset.get('ticker', 'UNKNOWN')
-        asset_class = "Corporate Bond" if ("-" in ticker or len(ticker) > 5) else "Equity"
+        # --- Metadata Extraction ---
+        asset_class = asset_info.get('asset_class', 'Equity')
+        base_risk = asset_info.get('historical_fail_rate', 0.02)
+        direction = random.choice(["DELI", "RECE"]) # DELI=Sell/Deliver, RECE=Buy/Receive
         
-        # --- NEW: Logic for Direction (ISO 20022 terms) ---
-        # DELI = Delivery (Sell), RECE = Receive (Buy)
-        direction = random.choice(["DELI", "RECE"])
-        
-        # --- Micro-Fluctuations ---
-        micro_jitter = np.random.uniform(-0.04, 0.04)
+        # --- Micro-Fluctuations (Noise) ---
+        micro_jitter = np.random.uniform(-0.03, 0.03)
         trade_vol_factor = round(systemic_stress + micro_jitter, 3)
 
-        # --- Probability Calculation ---
-        base_risk = asset.get('historical_fail_rate', 0.02)
+        # --- Risk Multipliers ---
+        # 1. Time Stress (Operational risk increases toward market close)
         hour = random.choices(range(8, 18), weights=[5,5,5,5,5,5,5,20,40,10])[0]
         prep_time = f"{hour:02d}:{random.randint(0, 59):02d}:00Z"
-        
-        # Risk Multipliers
         time_multiplier = 4.5 if hour >= 15 else 1.0
-        amt = round(np.random.lognormal(mean=10.5, sigma=1.2), 2)
-        size_multiplier = 3.0 if amt > 5000000 else 1.0
         
-        # Final Status
-        fail_prob = base_risk * trade_vol_factor * time_multiplier * size_multiplier
+        # 2. Trade Size (Institutional realism)
+        # Fixed Income trades are typically larger than Equity trades
+        is_fi = (asset_class != "Equity")
+        mu = 11.5 if is_fi else 10.2
+        amt = round(np.random.lognormal(mean=mu, sigma=1.2), 2)
+        
+        # Size risk: Bonds/FI trades have a lower liquidity ceiling
+        if is_fi and amt > 2000000:
+            size_multiplier = 3.5
+        elif not is_fi and amt > 5000000:
+            size_multiplier = 2.0
+        else:
+            size_multiplier = 1.0
+        
+        # --- Final Calculation ---
+        # Probability calculation capped at 98%
+        fail_prob = min(base_risk * trade_vol_factor * time_multiplier * size_multiplier, 0.98)
         status = "PENF" if random.random() < fail_prob else "ACSC"
-        reason = random.choice(["INSU", "LATE", "CASH", "CLOS"]) if status == "PENF" else ""
+        
+        reason = ""
+        if status == "PENF":
+            # Context-aware ISO 20022 reason codes
+            if direction == "DELI":
+                reason = random.choice(["INSU", "LATE"]) # Securities lack
+            else:
+                reason = random.choice(["CASH", "CLOS"]) # Cash/Funding lack
 
         # 5. Build Record
         trades.append({
@@ -104,11 +125,13 @@ def generate_synthetic_data(num_trades=10000):
             "Market_Volatility_Factor": trade_vol_factor
         })
 
-    # 6. Save Files
+    # 6. Export Results
     df = pd.DataFrame(trades)
     df.to_json('data.json', orient='records', indent=4)
     df.to_csv('settlements.csv', index=False)
-    print(f"Success: Generated 10,000 trades with enriched fields.")
+    
+    print(f"✅ Success! 10,000 trades generated.")
+    print(f"📈 Systemic Stress Level: {systemic_stress:.2f}")
 
 if __name__ == "__main__":
     generate_synthetic_data()
