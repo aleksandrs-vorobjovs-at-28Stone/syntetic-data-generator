@@ -30,7 +30,8 @@ jobs:
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./ # Use dot-slash to ensure it looks in the root
+          publish_dir: ./
           publish_branch: gh-pages
-          # This ensures it includes the new files we just created
-          force_push: true
+          # This is the secret sauce: 
+          # It tells the action to ignore .gitignore during deployment
+          exclude_assets: false
