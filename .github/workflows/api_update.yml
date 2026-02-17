@@ -30,11 +30,19 @@ jobs:
         run: ls -la # This will show us in the logs if the files actually exist
 
       - name: Deploy to GitHub Pages
-        uses: s0/git-publish-subdir-action@develop
-        env:
-          REPO: self
-          BRANCH: gh-pages # The branch name to push to
-          FOLDER: .        # Which folder to push (root)
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SKIP_EMPTY_COMMITS: true
-          MESSAGE: "Update data: {msg}" # Custom commit message
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # 1. Switch to a temporary branch to prepare the push
+          git checkout -b temp-branch
+          
+          # 2. Force add the ignored files
+          git add -f data.json settlements.csv index.html
+          
+          # 3. Commit the changes
+          git commit -m "Automated data update"
+          
+          # 4. Force push this to the gh-pages branch
+          # This overwrites gh-pages with EXACTLY what is in the runner right now
+          git push origin temp-branch:gh-pages --force
