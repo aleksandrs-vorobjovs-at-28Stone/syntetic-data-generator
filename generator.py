@@ -1,108 +1,107 @@
 import pandas as pd
 import numpy as np
-import yfinance as yf
-from datetime import datetime, timedelta
 import json
 import uuid
-import os
-
-# --- CONFIGURATION & MAPPING ---
-# These counterparties have specific risk profiles for your ML model to discover.
-COUNTERPARTIES = [
-    {"LEI": "5493003020A1", "Name": "JPM_CHASE", "RiskWeight": 0.85},
-    {"LEI": "W22LROWCHM24", "Name": "GOLDMAN_SACHS", "RiskWeight": 0.90},
-    {"LEI": "815600H98012", "Name": "BARCLAYS_CAP", "RiskWeight": 1.15},
-    {"LEI": "5299000W225M", "Name": "NOMURA_INTL", "RiskWeight": 1.60}, # Higher risk
-    {"LEI": "2138006M8651", "Name": "BEYOND_ALPHA_HF", "RiskWeight": 2.50} # High risk outlier
-]
+import datetime
+import random
+import yfinance as yf
 
 def get_live_vix():
-    """Fetches real-time market stress via Yahoo Finance."""
+    """Fetches real-time VIX baseline or uses a default if API fails."""
     try:
-        vix = yf.Ticker("^VIX").fast_info['last_price']
-        return vix
+        vix = yf.download("^VIX", period="1d", interval="1m")['Close'].iloc[-1]
+        return round(float(vix), 2)
     except:
-        return 22.0 # Standard stressed baseline
+        return 16.50 # Realistic default for 2026 baseline
 
-def generate_api_data():
-    # 1. Load the Calibration Brain
-    if not os.path.exists('seed_engine.json'):
-        print("Error: seed_engine.json not found.")
+def generate_synthetic_data(num_trades=10000):
+    # 1. Load Seed Data
+    try:
+        with open('seed_engine.json', 'r') as f:
+            seed_data = json.load(f)
+    except FileNotFoundError:
+        print("Error: seed_engine.json not found. Please run calibration first.")
         return
+
+    # 2. Setup Market Baseline (VIX)
+    current_vix = get_live_vix()
+    vix_baseline = 15.0
+    systemic_stress = current_vix / vix_baseline
+
+    # 3. Reference Data
+    leis = [
+        ("2138006M8651", "JPM_CHASE_NA"),
+        ("5493001KJX12", "GOLDMAN_SACHS_INTL"),
+        ("7LR9S95S8L34", "NOMURA_INTL"),
+        ("549300675865", "BARCLAYS_CAPITAL"),
+        ("213800VZW961", "BEYOND_ALPHA_HF")
+    ]
+
+    trades = []
     
-    with open('seed_engine.json', 'r') as f:
-        seeds = json.load(f)
+    # 4. Generation Loop
+    for _ in range(num_trades):
+        asset = random.choice(seed_data)
+        lei_id, lei_name = random.choice(leis)
+        
+        # --- Injecting Micro-Fluctuations (Noise) ---
+        # We add a random "jitter" per trade to avoid identical volatility values
+        micro_jitter = np.random.uniform(-0.04, 0.04)
+        trade_vol_factor = round(systemic_stress + micro_jitter, 3)
 
-    vix = get_live_vix()
-    vol_impact = max(1, vix / 20)
-    ticker_list = list(seeds['ticker_stress_scores'].keys())
-    
-    # Fallback if ticker list is empty
-    if not ticker_list:
-        ticker_list = ["AAPL", "TSLA", "MSFT", "CORP_BOND_B", "CORP_BOND_AAA"]
+        # --- Probability of Failure Calculation ---
+        # Base risk from SEC/FINRA seeds
+        base_risk = asset['historical_fail_rate']
+        
+        # Factor A: Time Stress (Late trades fail 4x more)
+        # Randomly generate a time (HH:MM)
+        hour = random.choices(range(8, 18), weights=[5,5,5,5,5,5,10,20,40,10])[0]
+        minute = random.randint(0, 59)
+        prep_time = f"{hour:02d}:{minute:02d}:00Z"
+        
+        time_multiplier = 4.0 if hour >= 15 else 1.0
+        
+        # Factor B: Trade Size (Large trades have liquidity risk)
+        # Log-normal distribution: most are small, some are huge
+        amt = round(np.random.lognormal(mean=10, sigma=1.5), 2)
+        size_multiplier = 2.5 if amt > 5000000 else 1.0
+        
+        # Final Failure Probability
+        fail_prob = base_risk * trade_vol_factor * time_multiplier * size_multiplier
+        
+        # Determine Status (ACSC = Success, PENF = Fail)
+        status = "PENF" if random.random() < fail_prob else "ACSC"
+        
+        # Assign Reason Code if failed
+        reason = ""
+        if status == "PENF":
+            reason = random.choice(["INSU", "LATE", "CASH", "CLOS"])
 
-    data = []
-    print(f"Generating 10,000 trades... Market Stress (VIX Impact): {vol_impact:.2f}x")
-
-    # 2. Generate 10,000 Trades
-    for _ in range(10000):
-        asset = np.random.choice(ticker_list)
-        cp = np.random.choice(COUNTERPARTIES)
-        is_bond = "BOND" in asset or len(asset) > 6 
-        
-        # --- FEATURE ENGINEERING (Authentic Variables) ---
-        # A. Settlement Amount (Log-normal: most are small, some are huge)
-        par_value = round(np.random.lognormal(mean=11.5, sigma=1.6), 2)
-        
-        # B. Execution Time (Concentrated near 16:00 UTC market cut-off)
-        hour = np.random.choice([9, 10, 11, 12, 13, 14, 15, 15, 15]) 
-        exec_time = f"{hour:02d}:{np.random.randint(0,59):02d}:00Z"
-
-        # --- RISK ENGINE (The "Predictive Signal") ---
-        base_fail_rate = 1 - seeds['systemic_efficiency']
-        ticker_score = seeds['ticker_stress_scores'].get(asset, 1.0)
-        
-        # Non-linear multipliers (Gamma Stress)
-        size_stress = 1.9 if par_value > 2500000 else 1.0
-        time_stress = 2.5 if hour >= 15 else 1.0 # High risk if close to cut-off
-        
-        # Probability calculation
-        fail_p = base_fail_rate * pow(ticker_score, 1.5) * cp['RiskWeight'] * vol_impact * size_stress * time_stress
-        
-        if is_bond:
-            fail_p *= seeds['bond_market']['liquidity_multiplier']
-        
-        # Cap for plausibility
-        fail_p = min(fail_p, 0.20)
-        is_failed = np.random.binomial(1, fail_p)
-
-        # 3. ISO 20022 MAPPING
-        status = "PENF" if is_failed else "ACSC"
-        reason = np.random.choice(["INSU", "LATE", "CASH", "CMIS"]) if is_failed else ""
-        
-        data.append({
-            "UETR": str(uuid.uuid4()), # Unique End-to-End Reference
-            "InstructingParty_LEI": cp['LEI'],
-            "Counterparty": cp['Name'],
-            "Asset_ISIN": asset,
-            "SettlementAmount": par_value,
+        # 5. Build Record
+        trades.append({
+            "UETR": str(uuid.uuid4()),
+            "InstructingParty_LEI": lei_id,
+            "Counterparty": lei_name,
+            "Asset_ISIN": asset['ticker'],
+            "SettlementAmount": amt,
             "Currency": "USD",
-            "PreparationDateTime": exec_time,
-            "SettlementCycle": "T+1" if not is_bond else "T+2",
+            "PreparationDateTime": prep_time,
+            "SettlementCycle": "T+1",
             "Status": status,
             "ISO_ReasonCode": reason,
-            "Market_Volatility_Factor": round(vol_impact, 2)
+            "Market_Volatility_Factor": trade_vol_factor
         })
 
-    # 4. Save Outputs
-    df = pd.DataFrame(data)
+    # 6. Save Files
+    df = pd.DataFrame(trades)
     
-    # JSON for the Dashboard
+    # JSON for Dashboard
     df.to_json('data.json', orient='records', indent=4)
-    # CSV for the ML Predictive Model
+    # CSV for ML Training
     df.to_csv('settlements.csv', index=False)
     
-    print("Generation complete: data.json and settlements.csv updated.")
+    print(f"Generation complete: 10,000 trades generated.")
+    print(f"Market Stress Baseline: {systemic_stress:.2f}")
 
 if __name__ == "__main__":
-    generate_api_data()
+    generate_synthetic_data()
