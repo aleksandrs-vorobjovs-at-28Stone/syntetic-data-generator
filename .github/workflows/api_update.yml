@@ -30,15 +30,11 @@ jobs:
         run: ls -la # This will show us in the logs if the files actually exist
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          # Use default working directory explicitly
-          publish_dir: .
-          publish_branch: gh-pages
-          # This forces the action to include files, even if they are in .gitignore
-          exclude_assets: false
-          # This ensures we don't just 'update' but overwrite with fresh data
-          keep_files: true 
-          user_name: 'github-actions[bot]'
-          user_email: 'github-actions[bot]@users.noreply.github.com'
+        uses: s0/git-publish-subdir-action@develop
+        env:
+          REPO: self
+          BRANCH: gh-pages # The branch name to push to
+          FOLDER: .        # Which folder to push (root)
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SKIP_EMPTY_COMMITS: true
+          MESSAGE: "Update data: {msg}" # Custom commit message
