@@ -30,8 +30,12 @@ jobs:
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./
+          # Use default working directory explicitly
+          publish_dir: .
           publish_branch: gh-pages
-          # This is the secret sauce: 
-          # It tells the action to ignore .gitignore during deployment
+          # This forces the action to include files, even if they are in .gitignore
           exclude_assets: false
+          # This ensures we don't just 'update' but overwrite with fresh data
+          keep_files: true 
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
