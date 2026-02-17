@@ -1,0 +1,17 @@
+# --- Python & Systems ---
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+.DS_Store
+
+# --- Project Specific ---
+# We ignore the local generated data so GitHub Actions can 
+# manage the "Official" version on the gh-pages branch.
+data.json
+settlements.csv
+
+# --- Local Calibration Seeds ---
+# You keep these on your PC, don't upload raw SEC/FINRA files to GitHub
+seeds/

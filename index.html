@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Global Settlement Command Center | ISO 20022</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans p-6">
+
+    <div class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-3xl font-extrabold text-white tracking-tight">Settlement <span class="text-blue-500">Monitor</span></h1>
+            <p class="text-slate-400 text-sm">Real-time ISO 20022 sese.024 Status Advice Feed</p>
+        </div>
+        <div class="flex gap-4">
+            <div class="bg-slate-800 border border-slate-700 p-3 rounded-lg shadow-xl text-center min-w-[120px]">
+                <p class="text-xs text-slate-500 uppercase font-bold">Market Stress</p>
+                <p id="vix-factor" class="text-xl font-mono text-yellow-400">--</p>
+            </div>
+            <div class="bg-slate-800 border border-slate-700 p-3 rounded-lg shadow-xl text-center min-w-[120px]">
+                <p class="text-xs text-slate-500 uppercase font-bold">STP Rate</p>
+                <p id="stp-rate" class="text-xl font-mono text-green-400">--</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div class="bg-slate-800 p-6 rounded-xl border-l-4 border-blue-500 shadow-lg">
+            <p class="text-slate-400 text-sm mb-1">Total Settlement Volume</p>
+            <h2 id="total-vol" class="text-2xl font-bold">$0.00</h2>
+        </div>
+        <div class="bg-slate-800 p-6 rounded-xl border-l-4 border-red-500 shadow-lg">
+            <p class="text-slate-400 text-sm mb-1">Capital at Risk (Fails)</p>
+            <h2 id="fail-vol" class="text-2xl font-bold text-red-400">$0.00</h2>
+        </div>
+        <div class="bg-slate-800 p-6 rounded-xl border-l-4 border-purple-500 shadow-lg">
+            <p class="text-slate-400 text-sm mb-1">Pending Instructions</p>
+            <h2 id="count" class="text-2xl font-bold">0</h2>
+        </div>
+    </div>
+
+    <div class="bg-slate-800 rounded-xl shadow-2xl overflow-hidden border border-slate-700">
+        <div class="p-4 bg-slate-700/30 border-b border-slate-700 flex justify-between items-center">
+            <h3 class="font-bold">Active Instruction Stream</h3>
+            <span class="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">LIVE UPDATES</span>
+        </div>
+        <table class="w-full text-left text-sm">
+            <thead>
+                <tr class="text-slate-500 border-b border-slate-700 uppercase text-[10px] tracking-widest">
+                    <th class="p-4">UETR / Instruction ID</th>
+                    <th class="p-4">Counterparty (LEI)</th>
+                    <th class="p-4">Asset</th>
+                    <th class="p-4 text-right">Amount (USD)</th>
+                    <th class="p-4">Status</th>
+                    <th class="p-4">Reason</th>
+                </tr>
+            </thead>
+            <tbody id="rows" class="divide-y divide-slate-700/50">
+                </tbody>
+        </table>
+    </div>
+
+    <script>
+        const formatUSD = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+
+        fetch('./data.json').then(r => r.json()).then(data => {
+            // Aggregate Data
+            const totalVolume = data.reduce((acc, curr) => acc + curr.SettlementAmount, 0);
+            const failData = data.filter(d => d.Status === 'PENF');
+            const failVolume = failData.reduce((acc, curr) => acc + curr.SettlementAmount, 0);
+            const stpRate = ((data.length - failData.length) / data.length) * 100;
+
+            // Update Header Stats
+            document.getElementById('vix-factor').innerText = data[0].Market_Volatility_Factor + 'x';
+            document.getElementById('stp-rate').innerText = stpRate.toFixed(1) + '%';
+            document.getElementById('total-vol').innerText = formatUSD(totalVolume);
+            document.getElementById('fail-vol').innerText = formatUSD(failVolume);
+            document.getElementById('count').innerText = data.length.toLocaleString();
+
+            // Populate Table (Top 25 for performance)
+            document.getElementById('rows').innerHTML = data.slice(0, 25).map(d => `
+                <tr class="hover:bg-slate-700/30 transition-colors">
+                    <td class="p-4 font-mono text-xs text-blue-400">${d.UETR.split('-')[0]}...</td>
+                    <td class="p-4 text-slate-300">
+                        <div class="font-bold">${d.Counterparty}</div>
+                        <div class="text-[10px] text-slate-500">${d.InstructingParty_LEI}</div>
+                    </td>
+                    <td class="p-4">${d.Asset_ISIN}</td>
+                    <td class="p-4 text-right font-mono">${formatUSD(d.SettlementAmount)}</td>
+                    <td class="p-4">
+                        <span class="px-2 py-1 rounded text-[10px] font-bold ${d.Status === 'ACSC' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">
+                            ${d.Status}
+                        </span>
+                    </td>
+                    <td class="p-4 font-mono text-xs text-slate-500">${d.ISO_ReasonCode || '--'}</td>
+                </tr>
+            `).join('');
+        });
+    </script>
+</body>
+</html>
