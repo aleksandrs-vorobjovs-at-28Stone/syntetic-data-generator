@@ -26,20 +26,11 @@ def generate_synthetic_data(num_trades=10000):
     try:
         with open('seed_engine.json', 'r') as f:
             raw_seed = json.load(f)
-            
-            # Handle different JSON formats (List vs Dict)
             if isinstance(raw_seed, dict):
                 temp_list = list(raw_seed.values())
             else:
                 temp_list = raw_seed
-            
-            # DEFENSIVE FILTER: Ensure every item is a dictionary
-            # This prevents the 'float object has no attribute get' error
             seed_data = [item for item in temp_list if isinstance(item, dict)]
-            
-            if not seed_data:
-                raise ValueError("No valid asset dictionaries found in seed_engine.json")
-                
     except Exception as e:
         print(f"Error loading seed data: {e}")
         return
@@ -61,43 +52,49 @@ def generate_synthetic_data(num_trades=10000):
     trades = []
     
     # 4. Generation Loop
-    print(f"Starting generation of {num_trades} trades...")
+    print(f"Starting generation of {num_trades} trades with Asset Class and Direction...")
     for _ in range(num_trades):
         # Pick a valid asset
         asset = random.choice(seed_data)
         lei_id, lei_name = random.choice(leis)
         
-        # --- Micro-Fluctuations (Noise) ---
+        # --- NEW: Logic for Asset Class ---
+        # If the ticker has a '-' or is longer than 5 chars, we treat it as a Bond 
+        # (mimicking TRACE format), otherwise Equity.
+        ticker = asset.get('ticker', 'UNKNOWN')
+        asset_class = "Corporate Bond" if ("-" in ticker or len(ticker) > 5) else "Equity"
+        
+        # --- NEW: Logic for Direction (ISO 20022 terms) ---
+        # DELI = Delivery (Sell), RECE = Receive (Buy)
+        direction = random.choice(["DELI", "RECE"])
+        
+        # --- Micro-Fluctuations ---
         micro_jitter = np.random.uniform(-0.04, 0.04)
         trade_vol_factor = round(systemic_stress + micro_jitter, 3)
 
         # --- Probability Calculation ---
         base_risk = asset.get('historical_fail_rate', 0.02)
-        
-        # Factor A: Time Stress
         hour = random.choices(range(8, 18), weights=[5,5,5,5,5,5,5,20,40,10])[0]
-        minute = random.randint(0, 59)
-        prep_time = f"{hour:02d}:{minute:02d}:00Z"
-        time_multiplier = 4.5 if hour >= 15 else 1.0
+        prep_time = f"{hour:02d}:{random.randint(0, 59):02d}:00Z"
         
-        # Factor B: Trade Size
+        # Risk Multipliers
+        time_multiplier = 4.5 if hour >= 15 else 1.0
         amt = round(np.random.lognormal(mean=10.5, sigma=1.2), 2)
         size_multiplier = 3.0 if amt > 5000000 else 1.0
         
-        # Logic for final Fail Status
+        # Final Status
         fail_prob = base_risk * trade_vol_factor * time_multiplier * size_multiplier
         status = "PENF" if random.random() < fail_prob else "ACSC"
-        
-        reason = ""
-        if status == "PENF":
-            reason = random.choice(["INSU", "LATE", "CASH", "CLOS"])
+        reason = random.choice(["INSU", "LATE", "CASH", "CLOS"]) if status == "PENF" else ""
 
         # 5. Build Record
         trades.append({
             "UETR": str(uuid.uuid4()),
             "InstructingParty_LEI": lei_id,
             "Counterparty": lei_name,
-            "Asset_ISIN": asset.get('ticker', 'UNKNOWN'),
+            "Direction": direction,
+            "Asset_Class": asset_class,
+            "Asset_ISIN": ticker,
             "SettlementAmount": amt,
             "Currency": "USD",
             "PreparationDateTime": prep_time,
@@ -111,9 +108,7 @@ def generate_synthetic_data(num_trades=10000):
     df = pd.DataFrame(trades)
     df.to_json('data.json', orient='records', indent=4)
     df.to_csv('settlements.csv', index=False)
-    
-    print(f"Success: Generated 10,000 trades.")
-    print(f"Final Market Stress Factor (Systemic): {systemic_stress:.2f}")
+    print(f"Success: Generated 10,000 trades with enriched fields.")
 
 if __name__ == "__main__":
     generate_synthetic_data()
