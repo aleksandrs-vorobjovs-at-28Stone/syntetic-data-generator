@@ -9,10 +9,12 @@ import yfinance as yf
 def get_live_vix():
     """Fetches real-time VIX baseline or uses a default if API fails."""
     try:
-        # Fixed: Using .iloc[-1] and explicitly converting to float to avoid FutureWarnings
+        # Fixed: Explicitly selecting the scalar value to avoid FutureWarnings
         vix_df = yf.download("^VIX", period="1d", interval="1m", progress=False)
         if not vix_df.empty:
-            vix_value = vix_df['Close'].iloc[-1]
+            vix_series = vix_df['Close']
+            # Accessing the last value as a scalar
+            vix_value = vix_series.values[-1]
             return round(float(vix_value), 2)
         return 16.50
     except Exception as e:
@@ -24,13 +26,22 @@ def generate_synthetic_data(num_trades=10000):
     try:
         with open('seed_engine.json', 'r') as f:
             raw_seed = json.load(f)
-            # Ensure we have a list for random.choice, even if JSON is index-oriented
+            
+            # Handle different JSON formats (List vs Dict)
             if isinstance(raw_seed, dict):
-                seed_data = list(raw_seed.values())
+                temp_list = list(raw_seed.values())
             else:
-                seed_data = raw_seed
-    except FileNotFoundError:
-        print("Error: seed_engine.json not found. Please ensure it exists in the root.")
+                temp_list = raw_seed
+            
+            # DEFENSIVE FILTER: Ensure every item is a dictionary
+            # This prevents the 'float object has no attribute get' error
+            seed_data = [item for item in temp_list if isinstance(item, dict)]
+            
+            if not seed_data:
+                raise ValueError("No valid asset dictionaries found in seed_engine.json")
+                
+    except Exception as e:
+        print(f"Error loading seed data: {e}")
         return
 
     # 2. Setup Market Baseline (Systemic Stress)
@@ -52,37 +63,31 @@ def generate_synthetic_data(num_trades=10000):
     # 4. Generation Loop
     print(f"Starting generation of {num_trades} trades...")
     for _ in range(num_trades):
+        # Pick a valid asset
         asset = random.choice(seed_data)
         lei_id, lei_name = random.choice(leis)
         
-        # --- Injecting Micro-Fluctuations (Noise) ---
-        # Unique jitter per trade between -0.04 and +0.04
+        # --- Micro-Fluctuations (Noise) ---
         micro_jitter = np.random.uniform(-0.04, 0.04)
         trade_vol_factor = round(systemic_stress + micro_jitter, 3)
 
-        # --- Probability of Failure Calculation ---
-        # Base risk from processed SEC/FINRA seeds
+        # --- Probability Calculation ---
         base_risk = asset.get('historical_fail_rate', 0.02)
         
-        # Factor A: Time Stress (Late trades near 16:00 cut-off fail more)
-        # Weighted hours: 15:00 and 16:00 are highest risk
+        # Factor A: Time Stress
         hour = random.choices(range(8, 18), weights=[5,5,5,5,5,5,5,20,40,10])[0]
         minute = random.randint(0, 59)
         prep_time = f"{hour:02d}:{minute:02d}:00Z"
-        
         time_multiplier = 4.5 if hour >= 15 else 1.0
         
-        # Factor B: Trade Size (Log-normal distribution for financial realism)
+        # Factor B: Trade Size
         amt = round(np.random.lognormal(mean=10.5, sigma=1.2), 2)
         size_multiplier = 3.0 if amt > 5000000 else 1.0
         
-        # Final Failure Probability logic
+        # Logic for final Fail Status
         fail_prob = base_risk * trade_vol_factor * time_multiplier * size_multiplier
-        
-        # Determine Status
         status = "PENF" if random.random() < fail_prob else "ACSC"
         
-        # Assign ISO Reason Code if failed
         reason = ""
         if status == "PENF":
             reason = random.choice(["INSU", "LATE", "CASH", "CLOS"])
@@ -104,10 +109,7 @@ def generate_synthetic_data(num_trades=10000):
 
     # 6. Save Files
     df = pd.DataFrame(trades)
-    
-    # JSON for Web Dashboard
     df.to_json('data.json', orient='records', indent=4)
-    # CSV for ML Training/Analysis
     df.to_csv('settlements.csv', index=False)
     
     print(f"Success: Generated 10,000 trades.")
