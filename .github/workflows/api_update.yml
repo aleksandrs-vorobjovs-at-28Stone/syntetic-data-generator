@@ -26,6 +26,9 @@ jobs:
         # This will now generate 10,000 trades using your seed_engine.json
         run: python generator.py
 
+      - name: Debug - List Files
+        run: ls -la # This will show us in the logs if the files actually exist
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
