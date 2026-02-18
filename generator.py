@@ -6,10 +6,16 @@ import random
 import yfinance as yf
 from datetime import datetime, timedelta
 
-# --- CONFIGURATION for Hackathon ---
-START_DATE = datetime(2025, 12, 1, 8, 0, 0)  # Simulation starts Dec 1st, 2025
-BUSINESS_DAYS = 5                            # Simulate 1 full business week
-TRADES_PER_DAY = 2000                        # 10,000 total trades
+# --- CONFIGURATION for Hackathon (DYNAMIC) ---
+# This ensures the data always looks "Live" relative to when you run the script.
+
+# Calculate the Monday of the current week to start the simulation
+now = datetime.now()
+monday_of_current_week = now - timedelta(days=now.weekday())
+START_DATE = monday_of_current_week.replace(hour=8, minute=0, second=0, microsecond=0)
+
+BUSINESS_DAYS = 5    # Simulate Mon-Fri of the CURRENT week
+TRADES_PER_DAY = 2000 
 OUTPUT_FILE = 'data.json'
 
 def get_live_vix():
