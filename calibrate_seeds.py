@@ -101,38 +101,41 @@ def process_finra_trace():
         print(f"   ! Error processing FINRA file: {e}")
         return {}, {"avg_daily_volume_m": 45000, "liquidity_multiplier": 1.0}
 
-def process_dtcc_pdfs():
-    """Extracts systemic efficiency percentages from DTCC PDFs."""
-    print("\n[STEP 3] Processing DTCC Reports (PDF Efficiency Extraction)...")
-    target_path = os.path.join(BASE_DIR, 'seeds', 'dtcc_reports', '*.pdf')
-    files = glob.glob(target_path)
+def process_dtcc_regime(mode="NORMAL"):
+    """
+    Sets the Systemic Efficiency Baseline based on the SIFMA/DTCC T+1 After Action Report.
+    Source: https://www.sifma.org/news/press-releases/sifma-ici-and-dtcc-release-t1-after-action-report/
+    """
+    # Exact values extracted from the Sept 12, 2024 Report
+    regimes = {
+        # CNS Fail Rate was 2.12% (Efficiency = 97.88%)
+        "OPTIMAL": 0.9788,  
+        
+        # Non-CNS Fail Rate was 3.31% (Efficiency = 96.69%)
+        "NORMAL": 0.9669,   
+        
+        # Hypothetical Stress: 5% fail rate (Based on 95% Affirmation target missing)
+        "STRESSED": 0.9500, 
+        
+        # Liquidity Crunch: 15% fail rate
+        "CRISIS": 0.8500    
+    }
     
-    if not files:
-        print(" ! SKIP: No DTCC PDFs found in seeds/dtcc_reports/")
-        return 0.7416 # Default based on your sample
+    efficiency = regimes.get(mode, 0.9669)
+    print(f"\n[STEP 3] Setting Systemic Efficiency Baseline...")
+    print(f" -> Mode: {mode}")
+    print(f" -> Baseline Efficiency: {efficiency*100:.2f}%")
+    print(" -> Source: SIFMA/DTCC T+1 After Action Report (Sept 2024)")
     
-    efficiencies = []
-    for f in files:
-        print(f" -> Found: {os.path.basename(f)}")
-        try:
-            with pdfplumber.open(f) as pdf:
-                text = " ".join([p.extract_text() or "" for p in pdf.pages])
-                # Find percentages like 98.5%
-                matches = re.findall(r'(\d{2}\.\d+)%', text)
-                if matches:
-                    efficiencies.append(float(max(matches)) / 100)
-        except Exception as e:
-            print(f"   ! Error parsing PDF: {e}")
-            
-    return sum(efficiencies) / len(efficiencies) if efficiencies else 0.7416
+    return efficiency
 
 def main():
     print("🚀 STARTING SEED ENGINE VERSION 2.0 CALIBRATION")
     
     # Run all extraction modules
-    systemic_efficiency = process_dtcc_pdfs()
-    bond_tickers, bond_stats = process_finra_trace()
     equity_tickers = process_sec_ftd()
+    bond_tickers, bond_stats = process_finra_trace()
+    systemic_efficiency = process_dtcc_regime(mode="NORMAL")
     
     ticker_metadata = {}
 
