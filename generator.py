@@ -4,157 +4,186 @@ import json
 import uuid
 import random
 import yfinance as yf
+from datetime import datetime, timedelta
+
+# --- CONFIGURATION for Hackathon ---
+START_DATE = datetime(2025, 12, 1, 8, 0, 0)  # Simulation starts Dec 1st, 2025
+BUSINESS_DAYS = 5                            # Simulate 1 full business week
+TRADES_PER_DAY = 2000                        # 10,000 total trades
+OUTPUT_FILE = 'data.json'
 
 def get_live_vix():
-    """Fetches real-time VIX to drive systemic risk."""
+    """Fetches real-time VIX or defaults to 16.50"""
     try:
-        # Explicitly selecting scalar to avoid FutureWarnings
-        vix_df = yf.download("^VIX", period="1d", interval="1m", progress=False)
-        if not vix_df.empty:
-            vix_value = vix_df['Close'].values[-1]
-            return round(float(vix_value), 2)
-        return 16.50
+        vix = yf.Ticker("^VIX").history(period="1d")
+        return round(float(vix['Close'].iloc[-1]), 2) if not vix.empty else 16.50
     except:
         return 16.50 
 
-def generate_synthetic_data(num_trades=10000):
-    # 1. Load the Enriched Seed Engine
+def generate_synthetic_data():
+    # 1. Load Seed Data
     try:
         with open('seed_engine.json', 'r') as f:
             full_seed = json.load(f)
-            
-            # --- GLOBAL CALIBRATION PARAMETERS ---
-            # 1. Systemic Efficiency (From DTCC SIFMA Report)
-            sys_efficiency = full_seed.get("systemic_efficiency", 0.9669)
-            sys_fail_baseline = max(0.0, 1.0 - sys_efficiency) # ~3.31% Baseline Risk
-            
-            # 2. Bond Market Context (From FINRA TRACE)
-            bond_context = full_seed.get("bond_market_context", {})
-            bond_liquidity_mult = bond_context.get("liquidity_multiplier", 1.0)
-            bond_daily_vol_m = bond_context.get("avg_daily_volume_m", 45000.0)
-            
-            # 3. Ticker Universe (SEC FTD + FINRA Expanded)
             ticker_data = full_seed.get("ticker_metadata", {})
             
-            if not ticker_data:
-                print("Error: ticker_metadata not found in seed file.")
-                return
+            # Extract Global Parameters
+            sys_efficiency = full_seed.get("systemic_efficiency", 0.9669)
+            sys_fail_baseline = max(0.0, 1.0 - sys_efficiency) # ~3.31%
             
-            # Split tickers by class for weighted selection
+            bond_context = full_seed.get("bond_market_context", {})
+            bond_daily_vol = bond_context.get("avg_daily_volume_m", 45000)
+            bond_liquidity_mult = bond_context.get("liquidity_multiplier", 1.0)
+
             equity_tickers = [t for t, m in ticker_data.items() if m['asset_class'] == "Equity"]
             fi_tickers = [t for t, m in ticker_data.items() if m['asset_class'] != "Equity"]
             
     except Exception as e:
-        print(f"File Load Error: {e}")
+        print(f"❌ Error loading seeds: {e}")
         return
 
-    # 2. Setup Market Baseline
-    current_vix = get_live_vix()
-    vix_baseline = 15.0
-    systemic_stress = current_vix / vix_baseline
-
-    # 3. Institutional Counterparties (LEIs)
-    leis = [
-        ("2138006M8651", "JPM_CHASE_NA"),
-        ("5493001KJX12", "GOLDMAN_SACHS_INTL"),
-        ("7LR9S95S8L34", "NOMURA_INTL"),
-        ("549300675865", "BARCLAYS_CAPITAL"),
-        ("213800VZW961", "BEYOND_ALPHA_HF")
+    # 2. Define Counterparties (With specific Risk Profiles)
+    # This maps directly to your "Counterparty Credit Quality" model feature
+    counterparties = [
+        {"id": "2138006M8651", "name": "JPM_CHASE_NA",       "credit_score": 825, "hist_fail_rate": 0.015},
+        {"id": "5493001KJX12", "name": "GOLDMAN_SACHS_INTL", "credit_score": 810, "hist_fail_rate": 0.018},
+        {"id": "7LR9S95S8L34", "name": "NOMURA_INTL",        "credit_score": 760, "hist_fail_rate": 0.025},
+        {"id": "549300675865", "name": "BARCLAYS_CAPITAL",   "credit_score": 780, "hist_fail_rate": 0.022},
+        {"id": "213800VZW961", "name": "BEYOND_ALPHA_HF",    "credit_score": 580, "hist_fail_rate": 0.120}  # High Risk!
     ]
 
+    current_vix = get_live_vix()
+    vix_baseline = 15.0
+    # Normalize VIX (e.g., 20.0 / 15.0 = 1.33x stress)
+    systemic_stress = round(current_vix / vix_baseline, 2)
+    
     trades = []
-    print(f"🚀 Generating {num_trades} trades...")
-    print(f"📉 Systemic Base Fail Rate: {sys_fail_baseline*100:.2f}% (DTCC Baseline)")
-    print(f"🏦 Bond Liquidity Context: {bond_daily_vol_m:,.0f}M Daily Vol (Multiplier: {bond_liquidity_mult}x)")
+    print(f"🚀 Generating {TRADES_PER_DAY * BUSINESS_DAYS} trades over {BUSINESS_DAYS} days...")
+    print(f"📊 Market Stress Factor (VIX): {systemic_stress}x")
 
-    # 4. Generation Loop
-    for _ in range(num_trades):
-        # Selection Logic: 70/30 split to ensure Bond visibility
-        if random.random() < 0.70:
-            ticker = random.choice(equity_tickers)
-        else:
-            ticker = random.choice(fi_tickers)
-            
-        asset_info = ticker_data[ticker]
-        lei_id, lei_name = random.choice(leis)
+    # 3. Simulation Loop
+    for day_offset in range(BUSINESS_DAYS):
+        current_day_base = START_DATE + timedelta(days=day_offset)
         
-        # --- Metadata Extraction ---
-        asset_class = asset_info.get('asset_class', 'Equity')
-        base_risk = asset_info.get('historical_fail_rate', 0.02)
-        direction = random.choice(["DELI", "RECE"]) # DELI=Sell, RECE=Buy
-        
-        # --- Micro-Fluctuations (Noise) ---
-        micro_jitter = np.random.uniform(-0.03, 0.03)
-        trade_vol_factor = round(systemic_stress + micro_jitter, 3)
-
-        # --- Risk Multipliers ---
-        # 1. Time Stress (Peak risk at 15:00-16:00 UTC)
-        hour = random.choices(range(8, 18), weights=[5,5,5,5,5,5,5,20,40,10])[0]
-        prep_time = f"{hour:02d}:{random.randint(0, 59):02d}:00Z"
-        time_multiplier = 4.5 if hour >= 15 else 1.0
-        
-        # 2. Trade Size & Volume Cap (Realism Check)
-        is_fi = (asset_class != "Equity")
-        
-        # Log-normal distribution setup
-        mu = 11.5 if is_fi else 10.2
-        amt = round(np.random.lognormal(mean=mu, sigma=1.2), 2)
-        
-        size_multiplier = 1.0
-        
-        if is_fi:
-            # --- NEW: Apply Bond Volume Cap ---
-            # Cap single trade at 0.5% of total daily volume to prevent unrealistic trades
-            # Convert millions to units: 45000 * 1,000,000 * 0.005
-            max_realistic_trade = bond_daily_vol_m * 1_000_000 * 0.005
-            amt = min(amt, max_realistic_trade)
-            
-            # Apply FINRA Liquidity Stress
-            size_multiplier = bond_liquidity_mult 
-            if amt > 2000000: size_multiplier *= 2.5 # Extra penalty for large blocks
-        
-        elif amt > 5000000:
-            # Standard Equity Size Penalty
-            size_multiplier = 2.0
-        
-        # --- Final Calculation ---
-        # Total Risk = (Ticker Risk * Multipliers) + Systemic Baseline
-        total_fail_prob = min((base_risk * trade_vol_factor * time_multiplier * size_multiplier) + sys_fail_baseline, 0.98)
-        
-        status = "PENF" if random.random() < total_fail_prob else "ACSC"
-        
-        reason = ""
-        if status == "PENF":
-            # Assign ISO reason based on direction
-            if direction == "DELI":
-                reason = random.choice(["INSU", "LATE"]) # Securities lack
+        for _ in range(TRADES_PER_DAY):
+            # --- A. Selection Logic ---
+            # 70% Equity, 30% Fixed Income
+            if random.random() < 0.70:
+                ticker = random.choice(equity_tickers)
             else:
-                reason = random.choice(["CASH", "CLOS"]) # Cash lack
+                ticker = random.choice(fi_tickers)
+            
+            asset_info = ticker_data[ticker]
+            asset_class = asset_info.get('asset_class', 'Equity')
+            
+            # Weighted Choice: Big banks trade more volume than the risky HF
+            cp = random.choices(counterparties, weights=[30, 30, 20, 15, 5])[0]
 
-        # 5. Build Record
-        trades.append({
-            "UETR": str(uuid.uuid4()),
-            "InstructingParty_LEI": lei_id,
-            "Counterparty": lei_name,
-            "Direction": direction,
-            "Asset_Class": asset_class,
-            "Asset_ISIN": ticker,
-            "SettlementAmount": amt,
-            "Currency": "USD",
-            "PreparationDateTime": prep_time,
-            "SettlementCycle": "T+1",
-            "Status": status,
-            "ISO_ReasonCode": reason,
-            "Market_Volatility_Factor": trade_vol_factor
-        })
+            # --- B. Time Generation (Market Hours vs Cut-off) ---
+            # Skew towards end of day (Cut-off risk)
+            hour = random.choices(range(8, 17), weights=[5,5,5,5,10,10,10,20,30])[0]
+            minute = random.randint(0, 59)
+            second = random.randint(0, 59)
+            prep_time = current_day_base.replace(hour=hour, minute=minute, second=second)
+            
+            # Feature: Time of Day Flag
+            time_flag = "Near_Cutoff" if hour >= 15 else "Market_Hours"
 
-    # 6. Export Results
+            # --- C. Feature Generation (Explicit for ML) ---
+            
+            # 1. Asset Liquidity (0-1 Scale)
+            # Equities are high (0.8-0.95), Bonds lower (0.3-0.7)
+            if asset_class == "Equity":
+                liq_score = round(np.random.uniform(0.80, 0.99), 2)
+            else:
+                liq_score = round(np.random.uniform(0.30, 0.70), 2)
+
+            # 2. Trade Size (Log-Normal)
+            is_fi = (asset_class != "Equity")
+            mu = 11.5 if is_fi else 10.2
+            amt = round(np.random.lognormal(mean=mu, sigma=1.2), 2)
+            
+            # Bond Cap: Max 0.5% of daily volume
+            if is_fi:
+                max_realistic = bond_daily_vol * 1_000_000 * 0.005
+                amt = min(amt, max_realistic)
+            
+            # --- D. Probability Calculation ---
+            # Factors extracted for clarity
+            
+            # Risk 1: Ticker Base Risk (from SEC/FINRA)
+            r_base = asset_info.get('historical_fail_rate', 0.02)
+            
+            # Risk 2: Counterparty Credit (Low Score = High Risk)
+            # 850 score -> 1.0x (No Penalty)
+            # 580 score -> 3.0x (Huge Penalty)
+            r_cp = max(1.0, (850 - cp['credit_score']) / 80)
+            
+            # Risk 3: Liquidity (Low Score = High Risk)
+            # Score 0.9 -> 1.0x
+            # Score 0.3 -> 2.5x
+            r_liq = max(1.0, (1.0 - liq_score) * 4)
+            
+            # Risk 4: Time (Cut-off pressure)
+            r_time = 1.5 if time_flag == "Near_Cutoff" else 1.0
+            
+            # Risk 5: Size (Big Ticket Penalty)
+            r_size = 1.0
+            if is_fi and amt > 2_000_000: r_size = 2.0
+            elif not is_fi and amt > 5_000_000: r_size = 2.0
+            
+            # TOTAL PROBABILITY FORMULA
+            # (Base * MarketStress * CP * Liquidity * Time * Size) + SystemicBaseline
+            total_fail_prob = (r_base * systemic_stress * r_cp * r_liq * r_time * r_size) + sys_fail_baseline
+            
+            # Cap probability at 98% (Nothing is 100% certain)
+            total_fail_prob = min(total_fail_prob, 0.98)
+
+            # --- E. Determine Status ---
+            status = "PENF" if random.random() < total_fail_prob else "ACSC"
+            direction = random.choice(["DELI", "RECE"])
+            
+            # Assign Logical Reason Code
+            reason = ""
+            if status == "PENF":
+                if direction == "DELI":
+                    # Seller failed to deliver securities
+                    reason = "INSU" if liq_score < 0.5 else "LATE"
+                else:
+                    # Buyer failed to pay cash
+                    reason = "CASH" if cp['credit_score'] < 650 else "CLOS"
+
+            # --- F. Build Record ---
+            trades.append({
+                "UETR": str(uuid.uuid4()),
+                "PreparationDateTime": prep_time.isoformat() + "Z",
+                "SettlementDate": (prep_time + timedelta(days=1)).strftime('%Y-%m-%d'), # T+1
+                "Asset_Class": asset_class,
+                "Asset_ISIN": ticker,
+                "Asset_Liquidity_Score": liq_score,       # NEW: 0-1 Scale
+                "Direction": direction,
+                "Counterparty": cp['name'],
+                "Counterparty_Credit_Score": cp['credit_score'], # NEW: 300-850
+                "Counterparty_Hist_Fail_Rate": cp['hist_fail_rate'], # NEW: Hist Perf
+                "SettlementAmount": amt,                  # NEW: Log-Normal
+                "Time_of_Day_Flag": time_flag,            # NEW: Feature for ML
+                "Currency": "USD",
+                "Status": status,
+                "ISO_ReasonCode": reason,
+                "Market_Volatility_Factor": systemic_stress # NEW: VIX Metric
+            })
+
+    # 4. Sort Chronologically (Crucial for LSTM/Time-Series)
+    trades.sort(key=lambda x: x['PreparationDateTime'])
+    
+    # 5. Export
     df = pd.DataFrame(trades)
-    df.to_json('data.json', orient='records', indent=4)
+    df.to_json(OUTPUT_FILE, orient='records', indent=4)
     df.to_csv('settlements.csv', index=False)
     
-    print(f"✅ Success! 10,000 trades updated in data.json and settlements.csv")
-    print(f"📈 Current Market Stress Factor: {systemic_stress:.2f}")
+    print(f"✅ Success! Generated {len(trades)} trades.")
+    print(f"📅 Data sorted from {df['PreparationDateTime'].min()} to {df['PreparationDateTime'].max()}")
+    print(f"💾 Saved to {OUTPUT_FILE} and settlements.csv")
 
 if __name__ == "__main__":
     generate_synthetic_data()

@@ -3,67 +3,94 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global Settlement Risk Monitor</title>
+    <title>SettlementAI | Risk Command Center</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
     <style>
-        .status-ACSC { color: #10b981; font-weight: bold; } /* Success Green */
-        .status-PENF { color: #ef4444; font-weight: bold; } /* Fail Red */
-        .dir-DELI { background-color: #dbeafe; color: #1e40af; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; }
-        .dir-RECE { background-color: #fef3c7; color: #92400e; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; }
+        .status-ACSC { color: #10b981; font-weight: 700; } /* Success Green */
+        .status-PENF { color: #ef4444; font-weight: 700; } /* Fail Red */
+        .badge { font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; font-weight: 600; letter-spacing: 0.05em; }
+        .bg-credit-high { background-color: #dcfce7; color: #166534; } /* High Score */
+        .bg-credit-mid { background-color: #fef9c3; color: #854d0e; }  /* Mid Score */
+        .bg-credit-low { background-color: #fee2e2; color: #991b1b; }   /* Low Score */
+        
+        /* Smooth Fade In */
+        tr { transition: background-color 0.2s; }
+        tr:hover { background-color: #f8fafc; }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900 font-sans">
+<body class="bg-slate-50 text-slate-800 font-sans">
 
-    <header class="bg-slate-900 text-white p-6 shadow-lg">
-        <div class="container mx-auto flex justify-between items-center">
-            <div>
-                <h1 class="text-2xl font-bold tracking-tight">SETTLEMENT<span class="text-blue-400">CORE</span> AI</h1>
-                <p class="text-slate-400 text-sm">Real-time T+1 Fail Prediction Interface</p>
+    <nav class="bg-slate-900 text-white shadow-lg border-b border-blue-500">
+        <div class="container mx-auto px-6 py-4 flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <div class="h-8 w-8 bg-blue-500 rounded flex items-center justify-center font-bold">AI</div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight">Settlement<span class="text-blue-400">Core</span> Engine</h1>
+                    <p class="text-xs text-slate-400">Real-Time ML Failure Prediction & Credit Risk Monitor</p>
+                </div>
             </div>
-            <div class="text-right">
-                <div id="last-update" class="text-xs text-slate-400">Syncing...</div>
-                <div class="text-sm font-mono text-blue-400">V2.0-ENRICHED</div>
+            <div class="text-right hidden md:block">
+                <div id="last-update" class="text-xs text-slate-400 font-mono">Syncing...</div>
+                <div class="text-xs font-bold text-green-400">● SYSTEM ONLINE</div>
             </div>
         </div>
-    </header>
+    </nav>
 
     <main class="container mx-auto py-8 px-4">
         
         <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                <p class="text-slate-500 text-xs uppercase font-bold mb-1">Total Instructions</p>
-                <h2 id="total-trades" class="text-3xl font-bold">0</h2>
-            </div>
             <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 border-l-4 border-l-red-500">
-                <p class="text-slate-500 text-xs uppercase font-bold mb-1">Predicted Fails</p>
-                <h2 id="fail-count" class="text-3xl font-bold text-red-600">0</h2>
+                <p class="text-slate-500 text-xs uppercase font-bold mb-1">Predicted Fail Rate (T+1)</p>
+                <div class="flex items-end justify-between">
+                    <h2 id="fail-rate" class="text-3xl font-bold text-slate-800">0.0%</h2>
+                    <span class="text-xs text-red-500 font-bold mb-1">↑ 2.1% vs Baseline</span>
+                </div>
             </div>
-            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                <p class="text-slate-500 text-xs uppercase font-bold mb-1">Market Stress Index</p>
-                <h2 id="vix-factor" class="text-3xl font-bold text-blue-600">0.00</h2>
+
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 border-l-4 border-l-blue-500">
+                <p class="text-slate-500 text-xs uppercase font-bold mb-1">Avg Counterparty Credit</p>
+                <div class="flex items-end justify-between">
+                    <h2 id="avg-credit" class="text-3xl font-bold text-slate-800">0</h2>
+                    <span class="text-xs text-slate-400 mb-1">FICO Scale (300-850)</span>
+                </div>
             </div>
-            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                <p class="text-slate-500 text-xs uppercase font-bold mb-1">Liquidity Coverage</p>
-                <h2 class="text-3xl font-bold text-emerald-600">99.2%</h2>
+
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 border-l-4 border-l-purple-500">
+                <p class="text-slate-500 text-xs uppercase font-bold mb-1">Market Stress (VIX Factor)</p>
+                <div class="flex items-end justify-between">
+                    <h2 id="vix-factor" class="text-3xl font-bold text-slate-800">0.0x</h2>
+                    <div class="w-24 h-2 bg-slate-100 rounded-full overflow-hidden mb-2">
+                        <div id="vix-bar" class="h-full bg-purple-500" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 border-l-4 border-l-emerald-500">
+                <p class="text-slate-500 text-xs uppercase font-bold mb-1">5-Day Trade Volume</p>
+                <h2 id="total-vol" class="text-3xl font-bold text-slate-800">0</h2>
             </div>
         </div>
 
-        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div class="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-                <h3 class="font-bold text-slate-700 uppercase text-sm tracking-widest">Global Settlement Ledger</h3>
-                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">LIVE FEED</span>
+        <div class="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+            <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                <h3 class="font-bold text-slate-700 uppercase text-sm tracking-widest">Live Trade Feed (Last 50 Entries)</h3>
+                <div class="flex gap-2">
+                    <span class="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700 font-bold">XGBoost Ready</span>
+                    <span class="text-xs px-2 py-1 rounded bg-purple-100 text-purple-700 font-bold">LSTM Series</span>
+                </div>
             </div>
+            
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse">
                     <thead>
-                        <tr class="text-slate-400 text-xs uppercase bg-slate-50">
-                            <th class="p-4 font-semibold">Direction</th>
-                            <th class="p-4 font-semibold">Asset Class</th>
-                            <th class="p-4 font-semibold">Ticker/ISIN</th>
-                            <th class="p-4 font-semibold">Counterparty</th>
+                        <tr class="text-slate-400 text-xs uppercase bg-slate-50 border-b border-slate-200">
+                            <th class="p-4 font-semibold">Time (UTC)</th>
+                            <th class="p-4 font-semibold">Counterparty (Credit)</th>
+                            <th class="p-4 font-semibold">Asset / Liquidity</th>
                             <th class="p-4 font-semibold">Amount (USD)</th>
-                            <th class="p-4 font-semibold">Stress Factor</th>
-                            <th class="p-4 font-semibold text-right">Status</th>
+                            <th class="p-4 font-semibold">AI Risk Factors</th>
+                            <th class="p-4 font-semibold text-right">Prediction</th>
                         </tr>
                     </thead>
                     <tbody id="trade-body" class="text-sm divide-y divide-slate-100">
@@ -79,37 +106,84 @@
                 const response = await fetch('data.json');
                 const data = await response.json();
                 
-                // Update Metadata Stats
-                document.getElementById('total-trades').innerText = data.length.toLocaleString();
-                const fails = data.filter(t => t.Status === 'PENF').length;
-                document.getElementById('fail-count').innerText = fails.toLocaleString();
+                // --- 1. Update KPI Cards ---
                 
-                // Grab the VIX factor from the first trade
-                if (data.length > 0) {
-                    document.getElementById('vix-factor').innerText = data[0].Market_Volatility_Factor;
-                    document.getElementById('last-update').innerText = "Last Sync: " + new Date().toLocaleTimeString();
-                }
+                // Fail Rate
+                const fails = data.filter(t => t.Status === 'PENF').length;
+                const failRate = ((fails / data.length) * 100).toFixed(1);
+                document.getElementById('fail-rate').innerText = failRate + "%";
+                
+                // Avg Credit Score
+                const totalCredit = data.reduce((sum, t) => sum + t.Counterparty_Credit_Score, 0);
+                const avgCredit = Math.round(totalCredit / data.length);
+                document.getElementById('avg-credit').innerText = avgCredit;
+                
+                // Market Stress (VIX) - Take from the last trade
+                const latestVix = data[data.length-1].Market_Volatility_Factor;
+                document.getElementById('vix-factor').innerText = latestVix.toFixed(2) + "x";
+                document.getElementById('vix-bar').style.width = (latestVix * 50) + "%"; // Scale for visual
+                
+                // Total Volume
+                document.getElementById('total-vol').innerText = data.length.toLocaleString();
+                document.getElementById('last-update').innerText = "Last Sync: " + new Date().toLocaleTimeString();
 
+                // --- 2. Render Table (Show Last 50 trades) ---
                 const body = document.getElementById('trade-body');
                 body.innerHTML = '';
+                
+                // We slice(-50) to show the MOST RECENT trades from the sorted list
+                const recentTrades = data.slice(-50).reverse(); 
 
-                // Display first 100 rows for performance
-                data.slice(0, 100).forEach(trade => {
+                recentTrades.forEach(trade => {
+                    // Credit Score Color Logic
+                    let creditClass = 'bg-credit-high';
+                    if (trade.Counterparty_Credit_Score < 700) creditClass = 'bg-credit-mid';
+                    if (trade.Counterparty_Credit_Score < 600) creditClass = 'bg-credit-low';
+
+                    // Liquidity Bar Width
+                    const liqPercent = trade.Asset_Liquidity_Score * 100;
+                    
+                    // Format Date
+                    const dateObj = new Date(trade.PreparationDateTime);
+                    const dateStr = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    const timeStr = dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
                     const row = `
-                        <tr class="hover:bg-slate-50 transition-colors">
-                            <td class="p-4"><span class="dir-${trade.Direction}">${trade.Direction}</span></td>
-                            <td class="p-4 text-slate-500 font-medium">${trade.Asset_Class}</td>
-                            <td class="p-4 font-mono font-bold">${trade.Asset_ISIN}</td>
-                            <td class="p-4 text-slate-600 text-xs uppercase font-semibold">${trade.Counterparty}</td>
-                            <td class="p-4 font-mono">$${trade.SettlementAmount.toLocaleString()}</td>
+                        <tr class="hover:bg-blue-50/30">
                             <td class="p-4">
-                                <div class="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden w-24">
-                                    <div class="bg-blue-500 h-full" style="width: ${trade.Market_Volatility_Factor * 50}%"></div>
+                                <div class="font-bold text-slate-700">${timeStr}</div>
+                                <div class="text-xs text-slate-400">${dateStr}</div>
+                            </td>
+                            <td class="p-4">
+                                <div class="font-medium text-slate-700">${trade.Counterparty}</div>
+                                <span class="badge ${creditClass} mt-1 inline-block">
+                                    Credit: ${trade.Counterparty_Credit_Score}
+                                </span>
+                            </td>
+                            <td class="p-4">
+                                <div class="font-mono text-xs font-bold mb-1">${trade.Asset_ISIN}</div>
+                                <div class="w-24 h-1.5 bg-slate-200 rounded-full overflow-hidden" title="Liquidity Score: ${trade.Asset_Liquidity_Score}">
+                                    <div class="h-full bg-blue-500" style="width: ${liqPercent}%"></div>
+                                </div>
+                                <div class="text-[10px] text-slate-400 mt-1">${trade.Asset_Class}</div>
+                            </td>
+                            <td class="p-4 font-mono text-slate-600">
+                                $${trade.SettlementAmount.toLocaleString()}
+                                <div class="text-[10px] uppercase font-bold text-slate-400">${trade.Direction}</div>
+                            </td>
+                            <td class="p-4">
+                                <div class="flex gap-1 flex-wrap">
+                                    ${trade.Time_of_Day_Flag === 'Near_Cutoff' 
+                                        ? '<span class="badge bg-orange-100 text-orange-700">⏰ Late</span>' 
+                                        : ''}
+                                    ${trade.Asset_Liquidity_Score < 0.4 
+                                        ? '<span class="badge bg-purple-100 text-purple-700">💧 Illiquid</span>' 
+                                        : ''}
                                 </div>
                             </td>
                             <td class="p-4 text-right">
                                 <span class="status-${trade.Status}">${trade.Status}</span>
-                                <div class="text-[10px] text-slate-400 font-bold">${trade.ISO_ReasonCode || ''}</div>
+                                <div class="text-[10px] font-bold text-red-400">${trade.ISO_ReasonCode || ''}</div>
                             </td>
                         </tr>
                     `;
@@ -121,9 +195,10 @@
             }
         }
 
-        // Initial Load and Auto-Refresh
+        // Initial Load
         fetchSettlements();
-        setInterval(fetchSettlements, 60000); // Refresh every minute
+        // Poll every 30 seconds to simulate a live dashboard
+        setInterval(fetchSettlements, 30000); 
     </script>
 </body>
 </html>
