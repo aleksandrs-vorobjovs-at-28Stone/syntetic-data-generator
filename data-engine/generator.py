@@ -4,10 +4,15 @@ import json
 import uuid
 import random
 import yfinance as yf
+import os
 from datetime import datetime, timedelta
 
-# --- CONFIGURATION for Hackathon (DYNAMIC) ---
-# This ensures the data always looks "Live" relative to when you run the script.
+# --- PATH CONFIGURATION (DYNAMIC) ---
+# Automatically resolve the folder where this script lives (e.g., /data-engine)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SEED_FILE = os.path.join(SCRIPT_DIR, 'seed_engine.json')
+JSON_FILE = os.path.join(SCRIPT_DIR, 'data.json')
+CSV_FILE = os.path.join(SCRIPT_DIR, 'settlements.csv')
 
 # Calculate the Monday of the current week to start the simulation
 now = datetime.now()
@@ -16,7 +21,6 @@ START_DATE = monday_of_current_week.replace(hour=8, minute=0, second=0, microsec
 
 BUSINESS_DAYS = 5    # Simulate Mon-Fri of the CURRENT week
 TRADES_PER_DAY = 2000 
-OUTPUT_FILE = 'data.json'
 
 def get_live_vix():
     """Fetches real-time VIX or defaults to 16.50"""
@@ -27,25 +31,23 @@ def get_live_vix():
         return 16.50 
 
 def generate_synthetic_data():
-    # 1. Load Seed Data
+    # 1. Load Seed Data (Uses dynamic path)
     try:
-        with open('seed_engine.json', 'r') as f:
+        with open(SEED_FILE, 'r') as f:
             full_seed = json.load(f)
             ticker_data = full_seed.get("ticker_metadata", {})
             
-            # Extract Global Parameters
             sys_efficiency = full_seed.get("systemic_efficiency", 0.9669)
             sys_fail_baseline = max(0.0, 1.0 - sys_efficiency) # ~3.31%
             
             bond_context = full_seed.get("bond_market_context", {})
             bond_daily_vol = bond_context.get("avg_daily_volume_m", 45000)
-            bond_liquidity_mult = bond_context.get("liquidity_multiplier", 1.0)
-
+            
             equity_tickers = [t for t, m in ticker_data.items() if m['asset_class'] == "Equity"]
             fi_tickers = [t for t, m in ticker_data.items() if m['asset_class'] != "Equity"]
             
     except Exception as e:
-        print(f"❌ Error loading seeds: {e}")
+        print(f"❌ Error loading seeds from {SEED_FILE}: {e}")
         return
 
     # 2. Define Counterparties (With specific Risk Profiles)
@@ -72,7 +74,7 @@ def generate_synthetic_data():
         current_day_base = START_DATE + timedelta(days=day_offset)
         
         for _ in range(TRADES_PER_DAY):
-            # --- A. Selection Logic ---
+            # --- A. Asset & Counterparty Selection ---
             # 70% Equity, 30% Fixed Income
             if random.random() < 0.70:
                 ticker = random.choice(equity_tickers)
@@ -163,33 +165,32 @@ def generate_synthetic_data():
             trades.append({
                 "UETR": str(uuid.uuid4()),
                 "PreparationDateTime": prep_time.isoformat() + "Z",
-                "SettlementDate": (prep_time + timedelta(days=1)).strftime('%Y-%m-%d'), # T+1
+                "SettlementDate": (prep_time + timedelta(days=1)).strftime('%Y-%m-%d'),
                 "Asset_Class": asset_class,
                 "Asset_ISIN": ticker,
-                "Asset_Liquidity_Score": liq_score,       # NEW: 0-1 Scale
+                "Asset_Liquidity_Score": liq_score,
                 "Direction": direction,
                 "Counterparty": cp['name'],
-                "Counterparty_Credit_Score": cp['credit_score'], # NEW: 300-850
-                "Counterparty_Hist_Fail_Rate": cp['hist_fail_rate'], # NEW: Hist Perf
-                "SettlementAmount": amt,                  # NEW: Log-Normal
-                "Time_of_Day_Flag": time_flag,            # NEW: Feature for ML
+                "Counterparty_Credit_Score": cp['credit_score'],
+                "Counterparty_Hist_Fail_Rate": cp['hist_fail_rate'],
+                "SettlementAmount": amt,
+                "Time_of_Day_Flag": time_flag,
                 "Currency": "USD",
                 "Status": status,
                 "ISO_ReasonCode": reason,
-                "Market_Volatility_Factor": systemic_stress # NEW: VIX Metric
+                "Market_Volatility_Factor": systemic_stress
             })
 
-    # 4. Sort Chronologically (Crucial for LSTM/Time-Series)
+    # 4. Sort Chronologically (Crucial for the real-time Python Streamer playback)
     trades.sort(key=lambda x: x['PreparationDateTime'])
     
-    # 5. Export
+    # 5. Export (Uses dynamic paths)
     df = pd.DataFrame(trades)
-    df.to_json(OUTPUT_FILE, orient='records', indent=4)
-    df.to_csv('settlements.csv', index=False)
+    df.to_json(JSON_FILE, orient='records', indent=4)
+    df.to_csv(CSV_FILE, index=False)
     
     print(f"✅ Success! Generated {len(trades)} trades.")
-    print(f"📅 Data sorted from {df['PreparationDateTime'].min()} to {df['PreparationDateTime'].max()}")
-    print(f"💾 Saved to {OUTPUT_FILE} and settlements.csv")
+    print(f"💾 Saved to {JSON_FILE} and {CSV_FILE}")
 
 if __name__ == "__main__":
     generate_synthetic_data()
