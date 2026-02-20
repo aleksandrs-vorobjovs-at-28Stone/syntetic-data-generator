@@ -1,0 +1,19 @@
+name: Stop Data Streamer
+
+on:
+  workflow_dispatch:
+
+# Ensures only one streamer runs at a time
+concurrency:
+  group: streamer-control
+  cancel-in-progress: true
+
+jobs:
+  kill-switch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Terminate Streamer
+        run: |
+          echo "🛑 KILL SWITCH ACTIVATED."
+          echo "The 'cancel-in-progress: true' flag has successfully terminated any running streamer."
+          echo "Data stream is now offline."
