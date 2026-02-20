@@ -23,7 +23,7 @@ BUSINESS_DAYS = 5    # Simulate Mon-Fri of the CURRENT week
 TRADES_PER_DAY = 2000 
 
 def get_live_vix():
-    """Fetches real-time VIX or defaults to 16.50"""
+    """Fetches real-time VIX from the Yahoo Finance API or set defaults to 16.50"""
     try:
         vix = yf.Ticker("^VIX").history(period="1d")
         return round(float(vix['Close'].iloc[-1]), 2) if not vix.empty else 16.50
@@ -60,14 +60,17 @@ def generate_synthetic_data():
         {"id": "213800VZW961", "name": "BEYOND_ALPHA_HF",    "credit_score": 580, "hist_fail_rate": 0.120}  # High Risk!
     ]
 
+    # We fetche real-time VIX from the Yahoo Finance API
+    # We did this only once initially to avoid spamming (fetching the live VIX 10,000 times would instantly get our IP address banned!)
+    # We will simulate realistic market fluctuations locally without making extra API calls
     current_vix = get_live_vix()
     vix_baseline = 15.0
-    # Normalize VIX (e.g., 20.0 / 15.0 = 1.33x stress)
-    systemic_stress = round(current_vix / vix_baseline, 2)
+    # We rename this to "base" because it will serve as the anchor for our fluctuations
+    base_systemic_stress = current_vix / vix_baseline 
     
     trades = []
     print(f"🚀 Generating {TRADES_PER_DAY * BUSINESS_DAYS} trades over {BUSINESS_DAYS} days...")
-    print(f"📊 Market Stress Factor (VIX): {systemic_stress}x")
+    print(f"📊 Base Market Stress Factor (VIX): {round(base_systemic_stress, 2)}x")
 
     # 3. Simulation Loop
     for day_offset in range(BUSINESS_DAYS):
@@ -140,9 +143,14 @@ def generate_synthetic_data():
             if is_fi and amt > 2_000_000: r_size = 2.0
             elif not is_fi and amt > 5_000_000: r_size = 2.0
             
+            # --- MICRO-VOLATILITY JITTER ---
+            # Inject a random +/- 5% daily fluctuation to the base VIX stress
+            stress_jitter = np.random.normal(0, 0.05)
+            trade_systemic_stress = max(0.5, round(base_systemic_stress + stress_jitter, 3))
+
             # TOTAL PROBABILITY FORMULA
             # (Base * MarketStress * CP * Liquidity * Time * Size) + SystemicBaseline
-            total_fail_prob = (r_base * systemic_stress * r_cp * r_liq * r_time * r_size) + sys_fail_baseline
+            total_fail_prob = (r_base * trade_systemic_stress * r_cp * r_liq * r_time * r_size) + sys_fail_baseline
             
             # Cap probability at 98% (Nothing is 100% certain)
             total_fail_prob = min(total_fail_prob, 0.98)
@@ -178,7 +186,7 @@ def generate_synthetic_data():
                 "Currency": "USD",
                 "Status": status,
                 "ISO_ReasonCode": reason,
-                "Market_Volatility_Factor": systemic_stress
+                "Market_Volatility_Factor": trade_systemic_stress
             })
 
     # 4. Sort Chronologically (Crucial for the real-time Python Streamer playback)
