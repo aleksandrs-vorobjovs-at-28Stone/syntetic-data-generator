@@ -43,7 +43,7 @@ jobs:
           git checkout -b temp-branch
           
           # 2. Force add the files using the environment variable
-          git add -f $PROJECT_FOLDER/data.json $PROJECT_FOLDER/settlements.csv $PROJECT_FOLDER/index.html
+          git add -f $PROJECT_FOLDER/data.json $PROJECT_FOLDER/settlements.csv
           
           # 3. Commit the changes
           git commit -m "Automated data update"
