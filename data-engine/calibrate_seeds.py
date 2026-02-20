@@ -1,9 +1,7 @@
 import pandas as pd
-import pdfplumber
 import glob
 import json
 import os
-import re
 import numpy as np
 import random
 
@@ -157,7 +155,6 @@ def main():
         "metadata": {
             "calibration_date": pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S'),
             "source_year": "2025",
-            "version": "2.0-Enriched"
         },
         "systemic_efficiency": systemic_efficiency,
         "bond_market_context": bond_stats,
