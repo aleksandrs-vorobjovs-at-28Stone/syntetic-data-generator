@@ -5,7 +5,6 @@ on:
     - cron: '0 * * * *' # Automatically runs every hour
   workflow_dispatch:      # Allows you to trigger it manually for testing
 
-# Define variables available to all jobs/steps
 env:
   PROJECT_FOLDER: data-engine
 
@@ -27,11 +26,9 @@ jobs:
           pip install pandas numpy yfinance
 
       - name: Run Generator
-        # Using the environment variable
         run: python $PROJECT_FOLDER/generator.py
 
       - name: Debug - List Files
-        # Using the environment variable
         run: ls -la $PROJECT_FOLDER/
 
       - name: Deploy to GitHub Pages
@@ -42,8 +39,8 @@ jobs:
           # 1. Switch to a temporary branch to prepare the push
           git checkout -b temp-branch
           
-          # 2. Force add the files using the environment variable
-          git add -f $PROJECT_FOLDER/data.json
+          # 2. Force add ONLY the json file
+          git add -f $DATA_DIR/data.json
           
           # 3. Commit the changes
           git commit -m "Automated data update"
