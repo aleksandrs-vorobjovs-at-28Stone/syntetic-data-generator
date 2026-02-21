@@ -1,0 +1,52 @@
+name: Schedule Data Generation
+
+on:
+  schedule:
+    - cron: '0 * * * *' # Automatically runs every hour
+  workflow_dispatch:      # Allows you to trigger it manually for testing
+
+# Define variables available to all jobs/steps
+env:
+  PROJECT_FOLDER: data-engine
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance
+
+      - name: Run Generator
+        # Using the environment variable
+        run: python $PROJECT_FOLDER/generator.py
+
+      - name: Debug - List Files
+        # Using the environment variable
+        run: ls -la $PROJECT_FOLDER/
+
+      - name: Deploy to GitHub Pages
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # 1. Switch to a temporary branch to prepare the push
+          git checkout -b temp-branch
+          
+          # 2. Force add the files using the environment variable
+          git add -f $PROJECT_FOLDER/data.json
+          
+          # 3. Commit the changes
+          git commit -m "Automated data update"
+          
+          # 4. Force push this to the gh-pages branch
+          git push origin temp-branch:gh-pages --force

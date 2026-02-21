@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SEED_FILE = os.path.join(SCRIPT_DIR, 'seed_engine.json')
 JSON_FILE = os.path.join(SCRIPT_DIR, 'data.json')
-CSV_FILE = os.path.join(SCRIPT_DIR, 'settlements.csv')
+#CSV_FILE = os.path.join(SCRIPT_DIR, 'settlements.csv')
 
 # Calculate the Monday of the current week to start the simulation
 now = datetime.now()
@@ -195,10 +195,11 @@ def generate_synthetic_data():
     # 5. Export (Uses dynamic paths)
     df = pd.DataFrame(trades)
     df.to_json(JSON_FILE, orient='records', indent=4)
-    df.to_csv(CSV_FILE, index=False)
+    #df.to_csv(CSV_FILE, index=False)
     
     print(f"✅ Success! Generated {len(trades)} trades.")
-    print(f"💾 Saved to {JSON_FILE} and {CSV_FILE}")
+    #print(f"💾 Saved to {JSON_FILE} and {CSV_FILE}")
+    print(f"💾 Saved to {JSON_FILE}")
 
 if __name__ == "__main__":
     generate_synthetic_data()
